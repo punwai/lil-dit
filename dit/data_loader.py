@@ -4,8 +4,12 @@ from torchvision import transforms
 from datasets import load_dataset
 from torch.utils.data import DataLoader
 
-
-def get_train_loader(batch_size=64, dataset_size=None):
+def get_train_loader(
+    batch_size=64, 
+    dataset_size=None,
+    distributed=False
+):
+    import torch.distributed as dist
     dataset = load_dataset("ylecun/mnist")
     shortened_dataset = dataset["train"]
     if dataset_size:
@@ -26,11 +30,22 @@ def get_train_loader(batch_size=64, dataset_size=None):
         remove_columns=["image", "label"]
     ).with_format("torch")
 
+    # Create a distributed sampler
+    kwargs = {}
+    if distributed:
+        kwargs["sampler"] = torch.utils.data.distributed.DistributedSampler(
+            shortened_dataset,
+            num_replicas=dist.get_world_size(),
+            rank=dist.get_rank(),
+            shuffle=True
+        )
+
     train_loader = DataLoader(
         shortened_dataset,
         batch_size=batch_size,
-        shuffle=True,
-        num_workers=4
+        num_workers=4,
+        pin_memory=True,
+        **kwargs
     )
     return train_loader
 

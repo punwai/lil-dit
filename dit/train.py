@@ -9,9 +9,22 @@ import time
 import os
 from torch.nn.utils import clip_grad_norm_
 import math
+import torch.distributed as dist
 
+# 
+# 0. set up distributed training
+# 
+def setup_dist():
+    dist.init_process_group("nccl")
+    torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
 
-# parameters
+def cleanup_dist():
+    dist.destroy_process_group()
+
+# 
+# 1. Set up everything
+# 
+
 init_lr = 1e-4
 batch_size = 64
 train_epochs = 50
@@ -22,11 +35,8 @@ model_save_steps = 200
 train_log_step = 10
 model_save_path = "ckpts"
 sample_epochs = 5
-
 if not os.path.exists(model_save_path):
     os.makedirs(model_save_path)
-
-# Slow 
 wandb.login(key=wandb_token)
 wandb.init(project="ddim", config={
     "init_lr": init_lr,
@@ -35,16 +45,22 @@ wandb.init(project="ddim", config={
     "T": T
 })
 
-start_time = time.time()
-train_loader = get_train_loader()
-print(f"Data load time {time.time() - start_time:.2f} seconds")
-
-
+# 
+# Diffusion parameters
+# 
 betas = torch.linspace(1e-4, 2e-2, T, device=device)
 alphas = 1 - betas
 alphas_bar = torch.cumprod(alphas, dim=0)
 sqrt_alphas_bar = torch.sqrt(alphas_bar).to(device)
 sqrt_one_minus_alphas_bar = torch.sqrt(1 - alphas_bar).to(device)
+
+# 
+# Model
+# 
+
+setup_dist()
+rank = dist.get_rank()
+device = torch.device("cuda", rank)
 
 model = DiT(mnist_config)
 optimizer = torch.optim.AdamW(
@@ -52,25 +68,18 @@ optimizer = torch.optim.AdamW(
     lr=1e-4,
     betas=(0.9,0.999),
 )
-
 model.to(device)
 model.from_checkpoint("ckpts/model_37.pth")
-
 torch.compile(model)
 
+# 
+# Data load
+# 
+
+start_time = time.time()
+train_loader = get_train_loader(distributed=True)
+
 overall_steps = train_epochs * len(train_loader)
-
-def cosine_decay(step, total_steps, init_lr):
-    # Goes from init_lr → 0 following cosine curve
-    # progress = step / total_steps
-    # cosine_decay = 0.5 * (1 + math.cos(math.pi * progress))
-
-    return init_lr
-
-
-def cosine_schedule(step):
-    return cosine_decay(step, overall_steps, init_lr) if step > 500 else (step/overall_steps * init_lr)
-
 total_steps = 0
 
 for epoch in range(train_epochs):
@@ -83,11 +92,11 @@ for epoch in range(train_epochs):
 
         b = x.shape[0]
         t = torch.randint(0, T, (b,)).to(device)
-        # noise: (b, 3, 28, 28)
+
         noise = torch.randn_like(x)
         noised_x = sqrt_alphas_bar[t][:,None,None,None] * x + sqrt_one_minus_alphas_bar[t][:,None,None,None] * noise
         t_emb = t.float() / T
-        # (B,)
+
         labels = labels
         loss = nn.functional.mse_loss(
             model(noised_x, t_emb, labels), 
