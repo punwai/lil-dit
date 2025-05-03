@@ -54,6 +54,7 @@ optimizer = torch.optim.AdamW(
 )
 
 model.to(device)
+model.from_checkpoint("ckpts/model_37.pth")
 
 torch.compile(model)
 
@@ -100,7 +101,7 @@ for epoch in range(train_epochs):
 
 
         if total_steps % model_save_steps == 0:
-            torch.save(model.state_dict(), f"{model_save_path}/model_{step}.pth")
+            torch.save(model.state_dict(), f"{model_save_path}/model_{total_steps}.pth")
         if total_steps % train_log_step == 0:
             grad_norm = 0
             for p in model.parameters():
@@ -112,8 +113,8 @@ for epoch in range(train_epochs):
                 "grad_norm": grad_norm
             })
 
-    # if epoch % sample_epochs == 0:
-    #     sample_ddpm(model, device=device, save_images=True)
+    if epoch % sample_epochs == 0:
+        sample_ddpm(model, device=device, save_images=True)
 
 
 

@@ -111,6 +111,9 @@ class DiT(nn.Module):
             )
             for _ in range(config.num_layers)
         ])
+
+    def from_checkpoint(self, path):
+        self.load_state_dict(torch.load(path))
     
     def forward(self, x, t, c):
         # x: (B, C, H, W)

@@ -31,7 +31,7 @@ def sample_ddpm(
         t = torch.tensor([_t], device=device).expand(batch_size)
         # predict noise
         eps = model(x, t.float() / T, labels)
-        
+
         # q(x_{t-1} | x_t, x_0) = N(x_{t-1}; \mu_{\theta}(x_t, t), \sigma_{t-1}^2 I)
         # Split the equation into multiple lines for debugging
         betas_t = betas[t].reshape(-1, 1, 1, 1)  # (batch_size,)
@@ -62,8 +62,16 @@ def sample_ddpm(
     return x
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ckpt", type=str, default="ckpts/model_37.pth", help="Path to checkpoint file")
+    args = parser.parse_args()
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = DiT(mnist_config)
+
+    model.from_checkpoint(args.ckpt)
+
     model.to(device)
     x = sample_ddpm(model, device=device)
  
